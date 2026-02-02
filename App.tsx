@@ -122,6 +122,14 @@ const App: React.FC = () => {
     setData({ ...data, tasks: data.tasks.filter(t => t.id !== taskId) });
   };
 
+  const changeTaskPriority = (taskId: string, priority: Task['priority']) => {
+    if (!data) return;
+    const updatedTasks = data.tasks.map(t => 
+      t.id === taskId ? { ...t, priority } : t
+    );
+    setData({ ...data, tasks: updatedTasks });
+  };
+
   if (!data) return <div className="h-screen flex items-center justify-center text-slate-400 dark:text-slate-500">Loading...</div>;
 
   return (
@@ -198,6 +206,7 @@ const App: React.FC = () => {
               onImportTasks={importTasks}
               onToggleTask={toggleTask}
               onDeleteTask={deleteTask}
+              onChangeTaskPriority={changeTaskPriority}
             />
           </div>
         ) : (

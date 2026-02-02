@@ -8,6 +8,7 @@ interface TaskPlannerProps {
   tasks: Task[];
   currentWeekStart: string;
   onAddTask: (title: string, date: string, priority: Task['priority']) => void;
+  onImportTasks: (tasks: { title: string; date: string; priority: Task['priority'] }[]) => void;
   onToggleTask: (taskId: string) => void;
   onDeleteTask: (taskId: string) => void;
 }
@@ -16,6 +17,7 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
   tasks,
   currentWeekStart,
   onAddTask,
+  onImportTasks,
   onToggleTask,
   onDeleteTask
 }) => {
@@ -70,8 +72,10 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
       
       const events = await listUpcomingEvents(startOfWeek.toISOString(), endOfWeek.toISOString());
       
-      // Process events
-      let addedCount = 0;
+      // Collect all tasks to be added
+      const tasksToImport: { title: string; date: string; priority: Task['priority'] }[] = [];
+      let newCount = 0;
+
       events.forEach(event => {
         const dateStr = event.start.dateTime 
             ? event.start.dateTime.split('T')[0] 
@@ -80,32 +84,30 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
         // Simple duplicate check based on title and date
         const exists = tasks.some(t => t.title === event.summary && t.date === dateStr);
         
-        if (!exists && dateStr) {
+        // Check if we already staged this task in the current batch
+        const staged = tasksToImport.some(t => t.title.includes(event.summary) && t.date === dateStr);
+
+        if (!exists && !staged && dateStr) {
            let timeStr = undefined;
            if (event.start.dateTime) {
               const d = new Date(event.start.dateTime);
               timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
            }
 
-           // Inject directly into onAddTask logic or parent state? 
-           // Since onAddTask generates IDs, we call it. 
-           // Note: onAddTask in App.tsx doesn't accept extra fields yet, 
-           // but we can manually invoke a specialized adder if we refactored App.tsx.
-           // For now, let's append the time to the title for display if needed, 
-           // or ideally, we should update the App.tsx addTask to accept a partial Task object.
-           // HACK: For this specific request without refactoring App.tsx extensively, 
-           // we will just append the time to the title string if it exists.
-           
            const finalTitle = timeStr ? `[${timeStr}] ${event.summary}` : event.summary;
            
-           // We flag it as medium priority by default
-           onAddTask(finalTitle, dateStr, 'medium');
-           addedCount++;
+           tasksToImport.push({
+             title: finalTitle,
+             date: dateStr,
+             priority: 'medium'
+           });
+           newCount++;
         }
       });
       
-      if (addedCount > 0) {
-        alert(`Successfully imported ${addedCount} events from Google Calendar!`);
+      if (newCount > 0) {
+        onImportTasks(tasksToImport);
+        alert(`Successfully imported ${newCount} events from Google Calendar!`);
       } else {
         alert("No new events found to import for this week.");
       }
@@ -127,7 +129,7 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
     }
   };
 
-  // Helper to detect calendar imports based on format [Time] Title
+  // Helper to detect calendar imports based on format [Time] Title or explicit flag
   const isCalendarTask = (title: string) => title.match(/^\[\d{2}:\d{2}\s[AP]M\]/);
 
   return (
@@ -293,7 +295,7 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
                 )}
 
                 {dayTasks.map(task => {
-                  const isImported = isCalendarTask(task.title);
+                  const isImported = task.isCalendarEvent || isCalendarTask(task.title);
                   return (
                     <div 
                       key={task.id} 

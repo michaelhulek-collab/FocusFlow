@@ -12,7 +12,7 @@ export interface Task {
   title: string;
   completed: boolean;
   date: string; // YYYY-MM-DD
-  priority: 'low' | 'medium' | 'high';
+  priority: 'low' | 'medium' | 'high' | 'google';
   isCalendarEvent?: boolean;
   time?: string; // Optional time string (e.g., "10:00 AM")
 }

@@ -93,6 +93,22 @@ const App: React.FC = () => {
     setData({ ...data, tasks: [...data.tasks, newTask] });
   };
 
+  // NEW: Bulk import function to handle multiple tasks at once safely
+  const importTasks = (newTasks: { title: string; date: string; priority: Task['priority'] }[]) => {
+    setData((prev) => {
+      if (!prev) return null;
+      const tasksToAdd: Task[] = newTasks.map(t => ({
+        id: generateId(),
+        title: t.title,
+        date: t.date,
+        completed: false,
+        priority: t.priority,
+        isCalendarEvent: true
+      }));
+      return { ...prev, tasks: [...prev.tasks, ...tasksToAdd] };
+    });
+  };
+
   const toggleTask = (taskId: string) => {
     if (!data) return;
     const updatedTasks = data.tasks.map(t => 
@@ -179,6 +195,7 @@ const App: React.FC = () => {
               tasks={data.tasks}
               currentWeekStart={data.currentWeekStartDate}
               onAddTask={addTask}
+              onImportTasks={importTasks}
               onToggleTask={toggleTask}
               onDeleteTask={deleteTask}
             />

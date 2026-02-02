@@ -11,6 +11,7 @@ interface TaskPlannerProps {
   onImportTasks: (tasks: { title: string; date: string; priority: Task['priority'] }[]) => void;
   onToggleTask: (taskId: string) => void;
   onDeleteTask: (taskId: string) => void;
+  onChangeTaskPriority: (taskId: string, priority: Task['priority']) => void;
 }
 
 export const TaskPlanner: React.FC<TaskPlannerProps> = ({
@@ -19,7 +20,8 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
   onAddTask,
   onImportTasks,
   onToggleTask,
-  onDeleteTask
+  onDeleteTask,
+  onChangeTaskPriority
 }) => {
   const [activeDate, setActiveDate] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -88,18 +90,12 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
         const staged = tasksToImport.some(t => t.title.includes(event.summary) && t.date === dateStr);
 
         if (!exists && !staged && dateStr) {
-           let timeStr = undefined;
-           if (event.start.dateTime) {
-              const d = new Date(event.start.dateTime);
-              timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-           }
-
-           const finalTitle = timeStr ? `[${timeStr}] ${event.summary}` : event.summary;
-           
+           // We no longer prepend the time string.
+           // Priority is set to 'google' by default for imports.
            tasksToImport.push({
-             title: finalTitle,
+             title: event.summary,
              date: dateStr,
-             priority: 'medium'
+             priority: 'google'
            });
            newCount++;
         }
@@ -126,11 +122,25 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
       case 'high': return 'text-red-600 bg-red-50 border-red-100 dark:bg-red-900/20 dark:border-red-900/30 dark:text-red-400';
       case 'medium': return 'text-amber-600 bg-amber-50 border-amber-100 dark:bg-amber-900/20 dark:border-amber-900/30 dark:text-amber-400';
       case 'low': return 'text-blue-600 bg-blue-50 border-blue-100 dark:bg-blue-900/20 dark:border-blue-900/30 dark:text-blue-400';
+      case 'google': return 'text-sky-600 bg-sky-50 border-sky-100 dark:bg-sky-900/20 dark:border-sky-900/30 dark:text-sky-400';
     }
   };
 
-  // Helper to detect calendar imports based on format [Time] Title or explicit flag
-  const isCalendarTask = (title: string) => title.match(/^\[\d{2}:\d{2}\s[AP]M\]/);
+  const getPriorityLabel = (p: Task['priority']) => {
+      if (p === 'google') return 'Google Calendar';
+      return p;
+  };
+
+  const cyclePriority = (e: React.MouseEvent, task: Task) => {
+      e.stopPropagation();
+      const priorities: Task['priority'][] = ['high', 'medium', 'low', 'google'];
+      const currentIndex = priorities.indexOf(task.priority);
+      const nextIndex = (currentIndex + 1) % priorities.length;
+      onChangeTaskPriority(task.id, priorities[nextIndex]);
+  };
+
+  // Helper to detect calendar imports based on explicit property or priority
+  const isCalendarTask = (task: Task) => task.priority === 'google' || task.isCalendarEvent;
 
   return (
     <div className="space-y-6">
@@ -295,7 +305,7 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
                 )}
 
                 {dayTasks.map(task => {
-                  const isImported = task.isCalendarEvent || isCalendarTask(task.title);
+                  const isImported = isCalendarTask(task);
                   return (
                     <div 
                       key={task.id} 
@@ -303,7 +313,7 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
                         ${task.completed 
                           ? 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800 opacity-60' 
                           : isImported 
-                             ? 'bg-indigo-50/30 dark:bg-indigo-900/10 border-indigo-100 dark:border-indigo-800'
+                             ? 'bg-sky-50/30 dark:bg-sky-900/10 border-sky-100 dark:border-sky-800'
                              : 'bg-white dark:bg-slate-950 border-slate-100 dark:border-slate-800 hover:shadow-sm hover:border-indigo-100 dark:hover:border-indigo-900'}
                       `}
                     >
@@ -320,14 +330,21 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
                       
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1">
-                          {isImported && <CalendarIcon size={10} className="text-indigo-500 flex-shrink-0" />}
-                          <p className={`truncate leading-tight ${task.completed ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-700 dark:text-slate-300'}`}>
+                          {isImported && <CalendarIcon size={10} className="text-sky-500 flex-shrink-0" />}
+                          <p 
+                            title={task.title}
+                            className={`truncate leading-tight cursor-default ${task.completed ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-700 dark:text-slate-300'}`}
+                          >
                             {task.title}
                           </p>
                         </div>
-                        <span className={`text-[9px] px-1.5 py-px rounded-full inline-block mt-1 ${getPriorityColor(task.priority)}`}>
-                          {task.priority}
-                        </span>
+                        <button 
+                            onClick={(e) => cyclePriority(e, task)}
+                            className={`text-[9px] px-1.5 py-px rounded-full inline-block mt-1 hover:brightness-95 transition-all ${getPriorityColor(task.priority)}`}
+                            title="Click to change priority"
+                        >
+                          {getPriorityLabel(task.priority)}
+                        </button>
                       </div>
 
                       <button 

@@ -7,7 +7,8 @@ declare global {
 }
 
 const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest';
-const SCOPES = 'https://www.googleapis.com/auth/calendar.events.readonly';
+// Updated scope to include reading the list of calendars (calendar.readonly), not just events on primary
+const SCOPES = 'https://www.googleapis.com/auth/calendar.readonly';
 
 let tokenClient: any;
 let gapiInited = false;
@@ -84,22 +85,49 @@ export interface CalendarEvent {
   summary: string;
   start: { date?: string; dateTime?: string };
   htmlLink: string;
+  // Optional: add source calendar name if needed for debugging
+  organizer?: { displayName?: string };
 }
 
 export const listUpcomingEvents = async (timeMin: string, timeMax: string): Promise<CalendarEvent[]> => {
   try {
-    const request = {
-      'calendarId': 'primary',
-      'timeMin': timeMin, // ISO Date string
-      'timeMax': timeMax, // ISO Date string
-      'showDeleted': false,
-      'singleEvents': true,
-      'orderBy': 'startTime',
-    };
-    const response = await window.gapi.client.calendar.events.list(request);
-    return response.result.items;
+    // 1. Fetch list of all calendars the user has
+    const calendarListRes = await window.gapi.client.calendar.calendarList.list();
+    const calendars = calendarListRes.result.items;
+
+    let allEvents: CalendarEvent[] = [];
+
+    // 2. Iterate and fetch events for each visible calendar
+    const fetchPromises = calendars.map(async (cal: any) => {
+        // Skip calendars that are not selected to be visible in Google Calendar UI
+        // (primary is usually selected, but we check explicitly just in case)
+        if (cal.selected !== true && !cal.primary) return;
+
+        const request = {
+            'calendarId': cal.id,
+            'timeMin': timeMin,
+            'timeMax': timeMax,
+            'showDeleted': false,
+            'singleEvents': true,
+            'orderBy': 'startTime',
+        };
+        
+        try {
+            const response = await window.gapi.client.calendar.events.list(request);
+            const items = response.result.items;
+            if (items) {
+                 allEvents.push(...items);
+            }
+        } catch(err) {
+            console.warn(`Failed to fetch for calendar ${cal.summary}`, err);
+        }
+    });
+
+    await Promise.all(fetchPromises);
+
+    return allEvents;
   } catch (err) {
-    console.error('Error fetching events', err);
+    console.error('Error fetching calendars or events', err);
     throw err;
   }
 };

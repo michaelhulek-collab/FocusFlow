@@ -29,6 +29,12 @@ export const loadAppData = (): AppData => {
     return h;
   });
 
+  // Backfill order for legacy tasks
+  data.tasks = data.tasks.map((t, index) => ({
+      ...t,
+      order: t.order ?? index // Default order if missing
+  }));
+
   // Check for new week logic
   const currentRealMonday = getMonday();
   // Use parseLocalDate to ensure we compare local midnight to local midnight

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Task } from '../types';
 import { getWeekDays, formatDate, getDayName, isSameDay, getFriendlyDate, parseLocalDate, addDays } from '../services/dateUtils';
-import { Plus, X, Target, Calendar as CalendarIcon, Loader2, RefreshCw } from 'lucide-react';
+import { Plus, X, Target, Calendar as CalendarIcon, Loader2, RefreshCw, GripVertical } from 'lucide-react';
 import { initializeGoogleApi, handleAuthClick, listUpcomingEvents } from '../services/googleCalendarService';
+import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 
 interface TaskPlannerProps {
   tasks: Task[];
@@ -12,6 +13,7 @@ interface TaskPlannerProps {
   onToggleTask: (taskId: string) => void;
   onDeleteTask: (taskId: string) => void;
   onChangeTaskPriority: (taskId: string, priority: Task['priority']) => void;
+  onUpdateTasks: (tasks: Task[]) => void;
 }
 
 export const TaskPlanner: React.FC<TaskPlannerProps> = ({
@@ -21,7 +23,8 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
   onImportTasks,
   onToggleTask,
   onDeleteTask,
-  onChangeTaskPriority
+  onChangeTaskPriority,
+  onUpdateTasks
 }) => {
   const [activeDate, setActiveDate] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -90,8 +93,6 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
         const staged = tasksToImport.some(t => t.title.includes(event.summary) && t.date === dateStr);
 
         if (!exists && !staged && dateStr) {
-           // We no longer prepend the time string.
-           // Priority is set to 'google' by default for imports.
            tasksToImport.push({
              title: event.summary,
              date: dateStr,
@@ -139,8 +140,61 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
       onChangeTaskPriority(task.id, priorities[nextIndex]);
   };
 
-  // Helper to detect calendar imports based on explicit property or priority
   const isCalendarTask = (task: Task) => task.priority === 'google' || task.isCalendarEvent;
+
+  const onDragEnd = (result: DropResult) => {
+    const { source, destination } = result;
+
+    if (!destination) return;
+    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
+
+    const sourceDate = source.droppableId;
+    const destDate = destination.droppableId;
+
+    // Get all tasks, we will construct a new array
+    const allTasks = [...tasks];
+    
+    // Separate tasks by date to handle reordering logic
+    // Must sort first to ensure we splice at the correct visual index
+    const sourceTasks = allTasks.filter(t => t.date === sourceDate).sort((a,b) => (a.order||0) - (b.order||0));
+    let destTasks = sourceDate === destDate 
+        ? sourceTasks 
+        : allTasks.filter(t => t.date === destDate).sort((a,b) => (a.order||0) - (b.order||0));
+
+    // Remove from source
+    const [movedTask] = sourceTasks.splice(source.index, 1);
+    
+    // Update task date if changed
+    if (sourceDate !== destDate) {
+        movedTask.date = destDate;
+        // Insert into dest
+        destTasks.splice(destination.index, 0, movedTask);
+    } else {
+        // Same list, just inserted at new index (sourceTasks IS destTasks)
+        sourceTasks.splice(destination.index, 0, movedTask);
+    }
+
+    // Update order for source column (if different from dest, this cleans up gaps)
+    sourceTasks.forEach((t, i) => { t.order = i; });
+    
+    // Update order for dest column (if different)
+    if (sourceDate !== destDate) {
+        destTasks.forEach((t, i) => { t.order = i; });
+    }
+
+    // Now merge back into main list
+    // We need to keep tasks that were NOT in source or dest unmodified
+    const otherTasks = allTasks.filter(t => t.date !== sourceDate && t.date !== destDate);
+    
+    let newAllTasks: Task[] = [];
+    if (sourceDate === destDate) {
+        newAllTasks = [...otherTasks, ...sourceTasks];
+    } else {
+        newAllTasks = [...otherTasks, ...sourceTasks, ...destTasks];
+    }
+
+    onUpdateTasks(newAllTasks);
+  };
 
   return (
     <div className="space-y-6">
@@ -151,6 +205,15 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
                 <h3 className="text-lg font-bold mb-4 text-slate-800 dark:text-slate-100 flex items-center gap-2">
                     <CalendarIcon size={20} /> Configure Google Calendar
                 </h3>
+                
+                <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg text-xs text-yellow-800 dark:text-yellow-200">
+                    <strong>Fix OAuth Error:</strong><br/>
+                    Add this exact URL to "Authorized JavaScript origins" in your Google Cloud Console:<br/>
+                    <code className="block mt-1 bg-white/50 dark:bg-black/20 p-1 rounded select-all font-mono break-all">
+                       {window.location.origin}
+                    </code>
+                </div>
+
                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
                     To sync, you need a Google Cloud Project with the Calendar API enabled. 
                     <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" className="text-indigo-500 hover:underline ml-1">
@@ -229,11 +292,12 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
           </div>
        </div>
 
+      <DragDropContext onDragEnd={onDragEnd}>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-3">
         {weekDays.map((date) => {
           const dateStr = formatDate(date);
           const isToday = isSameDay(date, new Date());
-          const dayTasks = tasks.filter(t => t.date === dateStr);
+          const dayTasks = tasks.filter(t => t.date === dateStr).sort((a,b) => (a.order??0) - (b.order??0));
           const isAddingToThisDay = activeDate === dateStr;
           
           return (
@@ -271,7 +335,13 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
               </div>
 
               {/* Task List */}
-              <div className="p-2 flex-1 flex flex-col gap-2 overflow-y-auto max-h-[400px]">
+              <Droppable droppableId={dateStr}>
+              {(provided, snapshot) => (
+              <div 
+                ref={provided.innerRef}
+                {...provided.droppableProps}
+                className={`p-2 flex-1 flex flex-col gap-2 overflow-y-auto max-h-[400px] min-h-[100px] transition-colors ${snapshot.isDraggingOver ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''}`}
+              >
                 {/* Input Form - Always visible if active for this date */}
                 {isAddingToThisDay && (
                   <form onSubmit={handleAddTask} className="mb-1 p-2 bg-indigo-50/50 dark:bg-indigo-900/20 rounded-lg border border-indigo-100 dark:border-indigo-800 shadow-sm">
@@ -297,26 +367,34 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
                   </form>
                 )}
 
-                {dayTasks.length === 0 && !isAddingToThisDay && (
+                {dayTasks.length === 0 && !isAddingToThisDay && !snapshot.isDraggingOver && (
                    <div className="flex-1 flex flex-col items-center justify-center opacity-20 py-8 text-slate-400 dark:text-slate-500">
                      <Target size={24} />
                      <span className="text-[10px] mt-1">Free Day</span>
                    </div>
                 )}
 
-                {dayTasks.map(task => {
+                {dayTasks.map((task, index) => {
                   const isImported = isCalendarTask(task);
                   return (
+                    <Draggable key={task.id} draggableId={task.id} index={index}>
+                    {(provided, snapshot) => (
                     <div 
-                      key={task.id} 
+                      ref={provided.innerRef}
+                      {...provided.draggableProps}
                       className={`group flex items-start gap-2 p-2 rounded-lg border text-xs transition-all
                         ${task.completed 
                           ? 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800 opacity-60' 
                           : isImported 
                              ? 'bg-sky-50/30 dark:bg-sky-900/10 border-sky-100 dark:border-sky-800'
                              : 'bg-white dark:bg-slate-950 border-slate-100 dark:border-slate-800 hover:shadow-sm hover:border-indigo-100 dark:hover:border-indigo-900'}
+                        ${snapshot.isDragging ? 'shadow-lg ring-2 ring-indigo-500/50 rotate-2 z-50' : ''}
                       `}
                     >
+                      <div {...provided.dragHandleProps} className="mt-0.5 text-slate-300 dark:text-slate-600 hover:text-slate-500 dark:hover:text-slate-400 cursor-grab active:cursor-grabbing">
+                        <GripVertical size={12} />
+                      </div>
+
                       <button 
                         onClick={() => onToggleTask(task.id)}
                         className={`mt-0.5 min-w-[14px] h-[14px] rounded border flex items-center justify-center transition-colors
@@ -354,13 +432,19 @@ export const TaskPlanner: React.FC<TaskPlannerProps> = ({
                         <X size={12} />
                       </button>
                     </div>
+                    )}
+                    </Draggable>
                   );
                 })}
+                {provided.placeholder}
               </div>
+              )}
+              </Droppable>
             </div>
           );
         })}
       </div>
+      </DragDropContext>
     </div>
   );
 };

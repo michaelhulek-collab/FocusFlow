@@ -135,12 +135,18 @@ const App: React.FC = () => {
 
   const addTask = (title: string, date: string, priority: Task['priority']) => {
     if (!data) return;
+    
+    // Calculate new order: find max order for this date + 1
+    const dayTasks = data.tasks.filter(t => t.date === date);
+    const maxOrder = dayTasks.reduce((max, t) => Math.max(max, t.order || 0), -1);
+
     const newTask: Task = {
       id: generateId(),
       title,
       date,
       completed: false,
-      priority
+      priority,
+      order: maxOrder + 1
     };
     setData({ ...data, tasks: [...data.tasks, newTask] });
   };
@@ -148,15 +154,36 @@ const App: React.FC = () => {
   const importTasks = (newTasks: { title: string; date: string; priority: Task['priority'] }[]) => {
     setData((prev) => {
       if (!prev) return null;
-      const tasksToAdd: Task[] = newTasks.map(t => ({
-        id: generateId(),
-        title: t.title,
-        date: t.date,
-        completed: false,
-        priority: t.priority,
-        isCalendarEvent: true
-      }));
-      return { ...prev, tasks: [...prev.tasks, ...tasksToAdd] };
+      
+      const finalNewTasks: Task[] = [];
+      const existingTasks = prev.tasks;
+      
+      // Group new tasks by date to calculate distinct orders
+      const byDate: Record<string, typeof newTasks> = {};
+      newTasks.forEach(t => {
+          if(!byDate[t.date]) byDate[t.date] = [];
+          byDate[t.date].push(t);
+      });
+
+      Object.entries(byDate).forEach(([date, tasks]) => {
+          const currentDayTasks = existingTasks.filter(t => t.date === date);
+          let maxOrder = currentDayTasks.reduce((max, t) => Math.max(max, t.order || 0), -1);
+          
+          tasks.forEach(t => {
+              maxOrder++;
+              finalNewTasks.push({
+                  id: generateId(),
+                  title: t.title,
+                  date: t.date,
+                  completed: false,
+                  priority: t.priority,
+                  isCalendarEvent: true,
+                  order: maxOrder
+              });
+          });
+      });
+
+      return { ...prev, tasks: [...prev.tasks, ...finalNewTasks] };
     });
   };
 
@@ -179,6 +206,11 @@ const App: React.FC = () => {
       t.id === taskId ? { ...t, priority } : t
     );
     setData({ ...data, tasks: updatedTasks });
+  };
+
+  const updateTasks = (updatedTasks: Task[]) => {
+      if (!data) return;
+      setData({ ...data, tasks: updatedTasks });
   };
 
   if (!authInitialized) return <div className="h-screen flex items-center justify-center text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-950">Loading...</div>;
@@ -280,6 +312,7 @@ const App: React.FC = () => {
               onToggleTask={toggleTask}
               onDeleteTask={deleteTask}
               onChangeTaskPriority={changeTaskPriority}
+              onUpdateTasks={updateTasks}
             />
           </div>
         ) : (

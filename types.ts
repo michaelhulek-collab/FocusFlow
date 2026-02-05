@@ -15,6 +15,7 @@ export interface Task {
   priority: 'low' | 'medium' | 'high' | 'google';
   isCalendarEvent?: boolean;
   time?: string; // Optional time string (e.g., "10:00 AM")
+  order: number; // For drag and drop sorting
 }
 
 export interface WeeklyArchive {

@@ -12,13 +12,10 @@ const INITIAL_DATA: AppData = {
   archives: [],
 };
 
-// --- Local Storage Logic ---
+// --- Data Processing Logic ---
 
-export const loadAppData = (): AppData => {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  let data: AppData = stored ? JSON.parse(stored) : INITIAL_DATA;
-
-  // Backfill createdAt for legacy data
+export const processData = (data: AppData): AppData => {
+  // 1. Backfill createdAt for legacy data
   data.habits = data.habits.map(h => {
     if (!h.createdAt) {
        // Estimate creation from first completion or default to now if brand new/empty
@@ -29,13 +26,13 @@ export const loadAppData = (): AppData => {
     return h;
   });
 
-  // Backfill order for legacy tasks
+  // 2. Backfill order for legacy tasks
   data.tasks = data.tasks.map((t, index) => ({
       ...t,
       order: t.order ?? index // Default order if missing
   }));
 
-  // Check for new week logic
+  // 3. Check for new week logic
   const currentRealMonday = getMonday();
   // Use parseLocalDate to ensure we compare local midnight to local midnight
   const storedMonday = parseLocalDate(data.currentWeekStartDate);
@@ -62,17 +59,23 @@ export const loadAppData = (): AppData => {
     // 1. Keep habits, but they are fresh for the new week
     // 2. Clear tasks as they are weekly planner tasks.
     
-    data = {
+    return {
       ...data,
       currentWeekStartDate: formatDate(currentRealMonday),
       tasks: [], 
       archives: [newArchive, ...data.archives],
     };
-    
-    saveAppData(data);
   }
 
   return data;
+};
+
+// --- Local Storage Logic ---
+
+export const loadAppData = (): AppData => {
+  const stored = localStorage.getItem(STORAGE_KEY);
+  let data: AppData = stored ? JSON.parse(stored) : INITIAL_DATA;
+  return processData(data);
 };
 
 export const saveAppData = (data: AppData) => {

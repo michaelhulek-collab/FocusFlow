@@ -12,6 +12,7 @@ export const HabitStatsModal: React.FC<HabitStatsModalProps> = ({ habit, onClose
   
   // Calculate Stats
   const stats = useMemo(() => {
+    // Convert to timestamps for sorting
     const dates = habit.completedDates.map(d => parseLocalDate(d).getTime()).sort((a, b) => a - b);
     const total = dates.length;
     
@@ -27,15 +28,20 @@ export const HabitStatsModal: React.FC<HabitStatsModalProps> = ({ habit, onClose
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
 
-      // Check current streak validity
+      // Check current streak validity (is the last completed date today or yesterday?)
       const lastDate = new Date(dates[dates.length - 1]);
+      // Normalize lastDate to midnight just to be safe, though parseLocalDate does it
+      lastDate.setHours(0,0,0,0);
+
       if (lastDate.getTime() === today.getTime() || lastDate.getTime() === yesterday.getTime()) {
-         // Count backwards
+         // Count backwards for current streak
          let checkDate = new Date(lastDate);
-         for (let i = dates.length - 1; i >= 0; i--) {
+         currentStreak = 1; // Start with 1 for the last date found
+         
+         for (let i = dates.length - 2; i >= 0; i--) {
+            checkDate.setDate(checkDate.getDate() - 1); // Move back one day
             if (dates[i] === checkDate.getTime()) {
                 currentStreak++;
-                checkDate.setDate(checkDate.getDate() - 1);
             } else {
                 break;
             }
@@ -45,10 +51,10 @@ export const HabitStatsModal: React.FC<HabitStatsModalProps> = ({ habit, onClose
       // Best streak
       tempStreak = 1;
       for (let i = 1; i < dates.length; i++) {
-        const prev = new Date(dates[i-1]);
-        const curr = new Date(dates[i]);
-        const diffTime = Math.abs(curr.getTime() - prev.getTime());
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+        const prev = dates[i-1]; // timestamp
+        const curr = dates[i];   // timestamp
+        const diffTime = Math.abs(curr - prev);
+        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24)); 
         
         if (diffDays === 1) {
             tempStreak++;
@@ -60,41 +66,46 @@ export const HabitStatsModal: React.FC<HabitStatsModalProps> = ({ habit, onClose
       bestStreak = Math.max(bestStreak, tempStreak);
     }
 
-    // Weekly Data for Graph
+    // --- Weekly Data for Graph ---
+    
+    // 1. Group completed dates by their Monday (Week Start)
+    const weeklyCounts: Record<string, number> = {};
+    habit.completedDates.forEach(dStr => {
+        const date = parseLocalDate(dStr);
+        const monday = getMonday(date);
+        const mondayStr = formatDate(monday);
+        weeklyCounts[mondayStr] = (weeklyCounts[mondayStr] || 0) + 1;
+    });
+
+    // 2. Determine Time Range
     const created = habit.createdAt ? new Date(habit.createdAt) : new Date();
-    // Start from the Monday of the creation week
     let startWeek = getMonday(created);
     const endWeek = getMonday(new Date()); // This week's monday
     
-    // Ensure we show at least 4 weeks
+    // Ensure we show at least 4 weeks history even for new habits
     const minWeeks = 4;
-    const diffTime = Math.abs(endWeek.getTime() - startWeek.getTime());
+    // Calculate weeks difference
+    const diffTime = endWeek.getTime() - startWeek.getTime();
     const diffWeeks = Math.ceil(diffTime / (1000 * 60 * 60 * 24 * 7)); 
     
     if (diffWeeks < minWeeks) {
-        startWeek = addDays(endWeek, -(minWeeks * 7));
+        // Shift startWeek back to ensure we cover 'minWeeks' (e.g. 4 weeks back from now)
+        // If minWeeks is 4, we want endWeek - 3 weeks (total 4 data points including endWeek)
+        startWeek = addDays(endWeek, -((minWeeks - 1) * 7));
     }
 
+    // 3. Build the data array
     const weeklyData = [];
     let iter = new Date(startWeek);
     
+    // Iterate from start week to current week
     while (iter <= endWeek) {
         const weekStartStr = formatDate(iter);
-        const weekEnd = addDays(iter, 6);
-        
-        // Count completions in this week range
-        let count = 0;
-        habit.completedDates.forEach(dStr => {
-            const d = parseLocalDate(dStr);
-            if (d >= iter && d <= weekEnd) {
-                count++;
-            }
-        });
         
         weeklyData.push({
             weekStart: weekStartStr,
             label: iter.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            count
+            count: weeklyCounts[weekStartStr] || 0
         });
         
         iter = addDays(iter, 7);
@@ -104,7 +115,6 @@ export const HabitStatsModal: React.FC<HabitStatsModalProps> = ({ habit, onClose
   }, [habit]);
 
   const maxCount = 7; // Max days in a week
-  const barHeight = 150;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -127,7 +137,7 @@ export const HabitStatsModal: React.FC<HabitStatsModalProps> = ({ habit, onClose
              </button>
           </div>
 
-          <div className="p-6 overflow-y-auto">
+          <div className="p-6 overflow-y-auto custom-scrollbar">
              {/* Key Stats Grid */}
              <div className="grid grid-cols-3 gap-4 mb-8">
                 <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl p-4 border border-indigo-100 dark:border-indigo-800/50 flex flex-col items-center justify-center text-center">
@@ -162,9 +172,7 @@ export const HabitStatsModal: React.FC<HabitStatsModalProps> = ({ habit, onClose
                 <div className="w-full overflow-x-auto pb-4 custom-scrollbar">
                     <div className="min-w-[500px] h-[220px] flex items-end justify-between gap-2 px-2">
                         {stats.weeklyData.map((week, i) => {
-                            const heightPercentage = (week.count / maxCount) * 100;
-                            // Dynamic color logic: faded if 0, solid if high
-                            const opacity = week.count === 0 ? 0.2 : 0.5 + (week.count / 14); 
+                            const heightPercentage = Math.min((week.count / maxCount) * 100, 100);
                             
                             return (
                                 <div key={i} className="flex-1 flex flex-col items-center group relative">
@@ -178,7 +186,7 @@ export const HabitStatsModal: React.FC<HabitStatsModalProps> = ({ habit, onClose
                                         className={`w-full min-w-[12px] rounded-t-sm transition-all duration-500 ease-out hover:brightness-110 ${habit.color}`}
                                         style={{ 
                                             height: `${Math.max(heightPercentage, 2)}%`, // Minimum height for 0
-                                            opacity: week.count === 0 ? 0.1 : 1
+                                            opacity: week.count === 0 ? 0.1 : 0.8
                                         }}
                                     ></div>
                                     

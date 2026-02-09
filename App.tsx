@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AppData, Habit, Task, ViewMode } from './types';
-import { loadAppData, saveAppData, fetchFromCloud, saveToCloud } from './services/storageService';
+import { loadAppData, saveAppData, fetchFromCloud, saveToCloud, processData } from './services/storageService';
 import { initializeFirebase, getFirebaseAuth } from './services/firebase';
 import { onAuthStateChanged, User } from "firebase/auth";
 import { HabitTracker } from './components/HabitTracker';
@@ -54,7 +54,9 @@ const App: React.FC = () => {
                     // Fetch cloud data
                     const cloudData = await fetchFromCloud(currentUser.uid);
                     if (cloudData) {
-                        setData(cloudData);
+                        // Apply processing logic (e.g. archiving old weeks) to cloud data
+                        const processedData = processData(cloudData);
+                        setData(processedData);
                     } else {
                         // If new user, stick with local/initial but sync it up
                         const localData = loadAppData();
